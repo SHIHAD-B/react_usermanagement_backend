@@ -19,32 +19,34 @@ router.post("/signup", async (req, res) => {
         const Existuser = await User.findOne({ email: req.body.email })
         if (Existuser) {
             return res.json({ error: 'user already exist' })
+        }else{
+
+            const salt = await bcrypt.genSalt();
+    
+            const hashedpassword = await bcrypt.hash(req.body.Password, salt)
+            const newUser = new User({
+                name: req.body.name,
+                email: req.body.email,
+                role: 'user',
+                password: hashedpassword,
+                profile: "./src/assets/profileimg.jpg"
+            })
+            const savedUser = await newUser.save()
+    
+    
+            //create the token
+            const token = jwt.sign({
+                user: savedUser._id
+            }, process.env.JWT_SECRET)
+    
+            //send the token in a http only cookie
+            res.cookie("token", token, {
+                httpOnly: true,
+                maxAge: 1000 * 60 * 60 * 24,
+            }).json({ success: true })
         }
 
 
-        const salt = await bcrypt.genSalt();
-
-        const hashedpassword = await bcrypt.hash(req.body.Password, salt)
-        const newUser = new User({
-            name: req.body.name,
-            email: req.body.email,
-            role: 'user',
-            password: hashedpassword,
-            profile: "./src/assets/profileimg.jpg"
-        })
-        const savedUser = await newUser.save()
-
-
-        //create the token
-        const token = jwt.sign({
-            user: savedUser._id
-        }, process.env.JWT_SECRET)
-
-        //send the token in a http only cookie
-        res.cookie("token", token, {
-            httpOnly: true,
-            maxAge: 1000 * 60 * 60 * 24,
-        }).json({ success: true })
 
     } catch (error) {
         console.log(error);
@@ -69,16 +71,18 @@ router.post("/login", async (req, res) => {
         if (!passwordCorrect) {
 
             return res.json({ passworderr: "Wrong password" });
+        } else {
+
+            const token = jwt.sign({
+                user: existingUser._id
+            }, process.env.JWT_SECRET);
+
+            res.cookie("token", token, {
+                httpOnly: true,
+                maxAge: 1000 * 60 * 60 * 24,
+            }).json({ success: true });
         }
 
-        const token = jwt.sign({
-            user: existingUser._id
-        }, process.env.JWT_SECRET);
-
-        res.cookie("token", token, {
-            httpOnly: true,
-            maxAge: 1000 * 60 * 60 * 24,
-        }).json({ success: true });
 
     } catch (error) {
         console.error("Error during login:", error);
@@ -126,40 +130,41 @@ router.post('/uploadprofileimage', upload.single('profile'), async (req, res) =>
 //update profile credentials
 router.post('/editprofile', async (req, res) => {
     try {
+        const name = req.body.name;
+        const orgpassword = req.body.password;
+        const currentPassword = req.body.currentpassword;
+        const newPassword = req.body.newpassword;
 
-        const name = req.body.name
-        const orgpassword = req.body.password
-        const currentPassword = req.body.currentpassword
-        const newPassword = req.body.newpassword
 
+
+        let updateFields = { name };
+        let passwordCorrect;
         if (currentPassword.length && newPassword.length) {
-            const passwordCorrect = await bcrypt.compare(currentPassword, orgpassword);
-            if (!passwordCorrect) {
-                res.json({ error: "incorrect password" })
-            } else {
+            passwordCorrect = await bcrypt.compare(currentPassword, orgpassword);
+            if (passwordCorrect) {
                 const salt = await bcrypt.genSalt();
-                const hashedNewPass = await bcrypt.hash(newPassword, salt)
-                await User.updateOne({ _id: req.body._id }, {
-                    $set: {
-                        name: name,
-                        password: hashedNewPass
-                    }
-                })
+                const hashedNewPass = await bcrypt.hash(newPassword, salt);
+                updateFields.password = hashedNewPass;
             }
         } else {
-            await User.updateOne({ _id: req.body._id }, {
-                $set: {
-                    name: name
-
-                }
-            })
+            passwordCorrect = true
         }
 
-        res.json({ success: true })
+
+        await User.updateOne({ _id: req.body._id }, { $set: updateFields });
+
+        if (passwordCorrect) {
+
+            res.json({ success: true });
+        } else {
+
+            res.json({ error: "Incorrect password" });
+        }
     } catch (error) {
-        console.log(error);
+        console.error("Error:", error);
+        return res.json({ error: "Internal Server Error" });
     }
-})
+});
 
 
 
